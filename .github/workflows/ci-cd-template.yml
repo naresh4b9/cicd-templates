@@ -18,8 +18,9 @@ jobs:
     runs-on: ubuntu-latest
     env:
       DOCKER_USERNAME: nareshpama
-      DOCKER_PASSWORD: ${{ vars.DOCKER_PAT }}   # You’ll define this in your repo variables
+      DOCKER_PASSWORD: ${{ vars.DOCKER_PAT }}   # Define this in your repo variables
       REGISTRY: docker.io
+      IMAGE_NAME: project-poc
 
     steps:
       - name: Checkout code
@@ -35,21 +36,24 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
+      - name: Get short commit SHA
+        id: vars
+        run: echo "SHORT_SHA=$(echo $GITHUB_SHA | cut -c1-7)" >> $GITHUB_ENV
+
       - name: Build Docker image
         run: |
-          echo "Building Docker image: ${{ inputs.docker-image-tag }}"
-          docker build -t ${{ inputs.docker-image-tag }} .
+          echo "Building Docker image: ${{ env.IMAGE_NAME }}:${{ env.SHORT_SHA }}"
+          docker build -t ${{ env.IMAGE_NAME }}:${{ env.SHORT_SHA }} .
 
       - name: Push Docker image
         run: |
-          echo "Pushing Docker image: ${{ inputs.docker-image-tag }}"
-          docker tag ${{ inputs.docker-image-tag }} ${{ env.REGISTRY }}/${{ env.DOCKER_USERNAME }}/${{ inputs.docker-image-tag }}
-          docker push ${{ env.REGISTRY }}/${{ env.DOCKER_USERNAME }}/${{ inputs.docker-image-tag }}
+          echo "Pushing Docker image: ${{ env.DOCKER_USERNAME }}/${{ env.IMAGE_NAME }}:${{ env.SHORT_SHA }}"
+          docker tag ${{ env.IMAGE_NAME }}:${{ env.SHORT_SHA }} \
+            ${{ env.DOCKER_USERNAME }}/${{ env.IMAGE_NAME }}:${{ env.SHORT_SHA }}
+          docker push ${{ env.DOCKER_USERNAME }}/${{ env.IMAGE_NAME }}:${{ env.SHORT_SHA }}
 
       - name: Deploy to environment
         run: |
-          echo "Deploying ${{ inputs.docker-image-tag }} to environment ${{ inputs.environment }}"
-          # Add your deployment logic here
-          # e.g.:
+          echo "Deploying ${{ env.IMAGE_NAME }}:${{ env.SHORT_SHA }} to environment ${{ inputs.environment }}"
           # kubectl apply -f k8s/
-          # helm upgrade myapp ./helm-chart --set image.tag=${{ inputs.docker-image-tag }}
+          # helm upgrade myapp ./helm-chart --set image.tag=${{ env.SHORT_SHA }}
