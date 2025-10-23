@@ -16,9 +16,21 @@ on:
 jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
+    env:
+      DOCKER_USERNAME: nareshpama
+      DOCKER_PASSWORD: ${{ vars.DOCKER_PAT }}   # You’ll define this in your repo variables
+      REGISTRY: docker.io
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v2
+        with:
+          username: ${{ env.DOCKER_USERNAME }}
+          password: ${{ env.DOCKER_PASSWORD }}
+          registry: ${{ env.REGISTRY }}
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -31,12 +43,13 @@ jobs:
       - name: Push Docker image
         run: |
           echo "Pushing Docker image: ${{ inputs.docker-image-tag }}"
-          docker tag ${{ inputs.docker-image-tag }} myregistry/${{ inputs.docker-image-tag }}
-          docker push myregistry/${{ inputs.docker-image-tag }}
+          docker tag ${{ inputs.docker-image-tag }} ${{ env.REGISTRY }}/${{ env.DOCKER_USERNAME }}/${{ inputs.docker-image-tag }}
+          docker push ${{ env.REGISTRY }}/${{ env.DOCKER_USERNAME }}/${{ inputs.docker-image-tag }}
 
       - name: Deploy to environment
         run: |
           echo "Deploying ${{ inputs.docker-image-tag }} to environment ${{ inputs.environment }}"
-          # Replace the following with your deployment command
-          # e.g., kubectl apply -f k8s/
+          # Add your deployment logic here
+          # e.g.:
+          # kubectl apply -f k8s/
           # helm upgrade myapp ./helm-chart --set image.tag=${{ inputs.docker-image-tag }}
