@@ -1,0 +1,50 @@
+
+---
+
+# **3️⃣ Reusable CI/CD Workflow**
+
+**cicd-templates/.github/workflows/ci-cd-template.yml**
+```yaml
+name: CI/CD Template
+
+on:
+  workflow_call:
+    inputs:
+      branch-name:
+        required: true
+        type: string
+      environment:
+        required: true
+        type: string
+      docker-image-tag:
+        required: true
+        type: string
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build Docker image
+        run: |
+          echo "Building Docker image: ${{ inputs.docker-image-tag }}"
+          docker build -t ${{ inputs.docker-image-tag }} .
+
+      - name: Push Docker image
+        run: |
+          echo "Pushing Docker image: ${{ inputs.docker-image-tag }}"
+          docker tag ${{ inputs.docker-image-tag }} myregistry/${{ inputs.docker-image-tag }}
+          docker push myregistry/${{ inputs.docker-image-tag }}
+
+      - name: Deploy to environment
+        run: |
+          echo "Deploying ${{ inputs.docker-image-tag }} to environment ${{ inputs.environment }}"
+          # Replace with your deployment commands:
+          # e.g., kubectl apply -f k8s/, helm upgrade, etc.
+
