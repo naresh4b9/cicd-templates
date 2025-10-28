@@ -12,24 +12,22 @@ on:
       docker-image-tag:
         required: true
         type: string
+    # Optionally accept secrets from caller (caller can pass secrets: inherit)
+    secrets:
+      DOCKER_PAT:
+        required: true
 
 jobs:
-  # ======================
-  # 1️⃣ CODEQL SCAN JOB
-  # ======================
+  # -----------------------
+  # CODEQL SCAN
+  # -----------------------
   codeql-scan:
     name: CodeQL Analysis
     runs-on: ubuntu-latest
 
-    permissions:
-      actions: read
-      contents: read
-      security-events: write
-
+    # NOTE: Do NOT set permissions here in a reusable workflow. The caller must provide them.
     strategy:
       fail-fast: false
-      matrix:
-        language: [python] # Adjust based on your repo
 
     steps:
       - name: Checkout repository
@@ -38,25 +36,26 @@ jobs:
       - name: Initialize CodeQL
         uses: github/codeql-action/init@v3
         with:
-          languages: ${{ matrix.language }}
+          languages: python         # change if you want to scan multiple langs
 
-      - name: Autobuild
+      - name: Autobuild (optional for Python; CodeQL may not require it)
         uses: github/codeql-action/autobuild@v3
 
       - name: Perform CodeQL Analysis
         uses: github/codeql-action/analyze@v3
 
-  # ======================
-  # 2️⃣ BUILD + TRIVY Scan + DEPLOY
-  # ======================
+  # -----------------------
+  # BUILD + TRIVY + PUSH + DEPLOY
+  # -----------------------
   build-and-deploy:
     name: Build, Scan, and Deploy
     runs-on: ubuntu-latest
-    needs: codeql-scan  # Run after CodeQL job completes
+    needs: codeql-scan
 
     env:
       DOCKER_USERNAME: nareshpama
-      DOCKER_PASSWORD: ${{ vars.DOCKER_PAT }}   # Define this in your repo variables
+      # DOCKER_PAT is passed as a secret from caller; map to env here
+      DOCKER_PASSWORD: ${{ secrets.DOCKER_PAT }}
       REGISTRY: docker.io
       IMAGE_NAME: project-poc
 
@@ -64,7 +63,6 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      # ----- Docker login -----
       - name: Log in to Docker Hub
         uses: docker/login-action@v2
         with:
@@ -72,22 +70,17 @@ jobs:
           password: ${{ env.DOCKER_PASSWORD }}
           registry: ${{ env.REGISTRY }}
 
-      # ----- Setup Buildx -----
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      # ----- Short SHA -----
       - name: Get short commit SHA
-        id: vars
         run: echo "SHORT_SHA=$(echo $GITHUB_SHA | cut -c1-7)" >> $GITHUB_ENV
 
-      # ----- Build Image -----
       - name: Build Docker image
         run: |
           echo "Building Docker image: ${{ env.IMAGE_NAME }}:${{ env.SHORT_SHA }}"
           docker build -t ${{ env.IMAGE_NAME }}:${{ env.SHORT_SHA }} .
 
-      # ----- Trivy Scan -----
       - name: Scan Docker image with Trivy
         uses: aquasecurity/trivy-action@0.24.0
         with:
@@ -95,10 +88,9 @@ jobs:
           format: 'table'
           vuln-type: 'os,library'
           severity: 'CRITICAL,HIGH'
-          exit-code: '1'   # Fails pipeline if high/critical found
-        continue-on-error: true  # Set false if you want to block build on findings
+          exit-code: '1'
+        continue-on-error: true
 
-      # ----- Push Image -----
       - name: Push Docker image
         run: |
           echo "Pushing Docker image: ${{ env.DOCKER_USERNAME }}/${{ env.IMAGE_NAME }}:${{ env.SHORT_SHA }}"
@@ -106,10 +98,7 @@ jobs:
             ${{ env.DOCKER_USERNAME }}/${{ env.IMAGE_NAME }}:${{ env.SHORT_SHA }}
           docker push ${{ env.DOCKER_USERNAME }}/${{ env.IMAGE_NAME }}:${{ env.SHORT_SHA }}
 
-      # ----- Deploy -----
       - name: Deploy to environment
         run: |
           echo "Deploying ${{ env.IMAGE_NAME }}:${{ env.SHORT_SHA }} to environment ${{ inputs.environment }}"
-          # Example:
-          # kubectl set image deployment/myapp myapp=${{ env.DOCKER_USERNAME }}/${{ env.IMAGE_NAME }}:${{ env.SHORT_SHA }}
-          # helm upgrade myapp ./helm-chart --set image.tag=${{ env.SHORT_SHA }}
+          # Replace with your real deploy command(s)
