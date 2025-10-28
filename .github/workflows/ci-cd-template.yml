@@ -56,6 +56,11 @@ jobs:
       IMAGE_NAME: project-poc
 
     steps:
+      - name: Debug env
+        run: |
+          echo "DOCKER_USERNAME: $DOCKER_USERNAME"
+          echo "DOCKER_PASSWORD length: ${#DOCKER_PASSWORD}"
+        shell: bash
       - name: Checkout code
         uses: actions/checkout@v4
 
