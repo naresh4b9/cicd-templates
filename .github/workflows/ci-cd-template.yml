@@ -12,6 +12,9 @@ on:
       docker-image-tag:
         required: true
         type: string
+    secrets:
+      DOCKER_PAT:
+        required: true
 
 jobs:
   # -----------------------
