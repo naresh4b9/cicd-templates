@@ -82,7 +82,7 @@ jobs:
         if: steps.detect_langs.outputs.langs == ''
         run: echo "⏭️ No supported source code found for CodeQL scan. Skipping."
 
-    secret-scan:
+  secret-scan:
     name: 🕵️ Secret & Dependency Scan
     runs-on: ubuntu-latest
     steps:
@@ -92,14 +92,14 @@ jobs:
         if: ${{ github.event_name == 'pull_request' }}
         uses: actions/dependency-review-action@v4
 
-      - name: Run secret scan
+      - name: Run secret scan (always)
         run: |
           echo "🔍 Running generic secret scan..."
-          # You can replace this with actual scanners like:
-          #   uses: trufflesecurity/trufflehog@v3
-          # or
-          #   uses: gitleaks/gitleaks-action@v2
+          # You can replace this placeholder with one of these scanners:
+          # uses: trufflesecurity/trufflehog@v3
+          # uses: gitleaks/gitleaks-action@v2
           echo "✅ Secret scan completed (placeholder)."
+
 
   docker-scan:
     name: 🐳 Trivy Docker Image Scan
