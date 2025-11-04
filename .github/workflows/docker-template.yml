@@ -131,7 +131,8 @@ jobs:
           vuln-type: 'os,library'
           severity: 'CRITICAL,HIGH'
           exit-code: '1'
-        continue-on-error: false
+          github-pat: ${{ secrets.GITHUB_TOKEN }}
+
 
   dotnet-scan:
     name: 🧩 .NET Code Scan
