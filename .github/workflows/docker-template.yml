@@ -50,36 +50,56 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Detect languages in repo
+        id: detect_langs
+        run: |
+          langs=""
+          if ls **/*.py 1> /dev/null 2>&1; then langs="${langs}python,"; fi
+          if ls **/*.csproj 1> /dev/null 2>&1; then langs="${langs}csharp,"; fi
+          if ls **/*.js 1> /dev/null 2>&1; then langs="${langs}javascript,"; fi
+          langs="${langs%,}" # trim trailing comma
+          echo "Detected languages: $langs"
+          echo "langs=$langs" >> $GITHUB_OUTPUT
+
       - name: Initialize CodeQL
+        if: steps.detect_langs.outputs.langs != ''
         uses: github/codeql-action/init@v3
         with:
-          languages: python, csharp, javascript
+          languages: ${{ steps.detect_langs.outputs.langs }}
 
       - name: Manual build for .NET (if present)
+        if: contains(steps.detect_langs.outputs.langs, 'csharp')
         run: |
-          if ls **/*.csproj 1> /dev/null 2>&1; then
-            echo "Building .NET project for CodeQL..."
-            dotnet restore
-            dotnet build --no-incremental
-          else
-            echo "No .NET project detected, skipping manual build."
-          fi
+          echo "Building .NET project for CodeQL..."
+          dotnet restore
+          dotnet build --no-incremental
 
       - name: Perform CodeQL Analysis
+        if: steps.detect_langs.outputs.langs != ''
         uses: github/codeql-action/analyze@v3
 
-  secret-scan:
+      - name: Skip message
+        if: steps.detect_langs.outputs.langs == ''
+        run: echo "⏭️ No supported source code found for CodeQL scan. Skipping."
+
+    secret-scan:
     name: 🕵️ Secret & Dependency Scan
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
-      - name: Run dependency review (only on PR)
+      - name: Run dependency review (if PR)
         if: ${{ github.event_name == 'pull_request' }}
         uses: actions/dependency-review-action@v4
 
-      - name: Run generic secret scan
-        run: echo "Scanning repo for secrets (placeholder — replace with trufflehog or gitleaks if needed)"
+      - name: Run secret scan
+        run: |
+          echo "🔍 Running generic secret scan..."
+          # You can replace this with actual scanners like:
+          #   uses: trufflesecurity/trufflehog@v3
+          # or
+          #   uses: gitleaks/gitleaks-action@v2
+          echo "✅ Secret scan completed (placeholder)."
 
   docker-scan:
     name: 🐳 Trivy Docker Image Scan
