@@ -38,8 +38,8 @@ jobs:
 
       - name: Build Docker image (no push)
         run: |
-          echo "Building Docker image: ${{ env.IMAGE_NAME }}:${{ env.TAG }}"
-          docker build -t ${{ env.IMAGE_NAME }}:${{ env.TAG }} .
+          echo "Building Docker image: ${{ env.DOCKER_USERNAME }}/${{ env.IMAGE_NAME }}:${{ env.TAG }}"
+          docker build -t ${{ env.DOCKER_USERNAME }}/${{ env.IMAGE_NAME }}:${{ env.TAG }} .
 
 # ==========================================================
 # 2️⃣ SCAN STAGE
@@ -109,12 +109,12 @@ jobs:
       - name: Check if Dockerfile exists
         id: check_dockerfile
         run: |
-          if [ -f Dockerfile ]; then
+          if find . -type f -name 'Dockerfile' | grep .; then
             echo "exists=true" >> $GITHUB_OUTPUT
           else
             echo "exists=false" >> $GITHUB_OUTPUT
           fi
-
+          
       - name: Checkout repo
         if: steps.check_dockerfile.outputs.exists == 'true'
         uses: actions/checkout@v4
@@ -207,8 +207,6 @@ jobs:
       - name: Push Docker image
         run: |
           echo "Pushing Docker image: ${{ env.DOCKER_USERNAME }}/${{ env.IMAGE_NAME }}:${{ env.TAG }}"
-          docker tag ${{ env.IMAGE_NAME }}:${{ env.TAG }} \
-            ${{ env.DOCKER_USERNAME }}/${{ env.IMAGE_NAME }}:${{ env.TAG }}
           docker push ${{ env.DOCKER_USERNAME }}/${{ env.IMAGE_NAME }}:${{ env.TAG }}
 
 # ==========================================================
