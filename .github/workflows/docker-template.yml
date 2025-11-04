@@ -36,12 +36,15 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Build Docker image (no push)
+      - name: Build Docker image
         run: |
-          echo "Building Docker image: ${{ env.DOCKER_USERNAME }}/${{ env.IMAGE_NAME }}:${{ env.TAG }}"
-          docker build -t ${{ env.DOCKER_USERNAME }}/${{ env.IMAGE_NAME }}:${{ env.TAG }} .
-
-# ==========================================================
+          SHORT_SHA=$(echo "${GITHUB_SHA}" | cut -c1-8)
+          echo "SHORT_SHA=$SHORT_SHA" >> $GITHUB_ENV
+      
+          echo "Building Docker image: docker.io/${{ env.DOCKER_USERNAME }}/${{ env.IMAGE_NAME }}:${{ inputs.branch-name }}-${SHORT_SHA}"
+          docker build -t docker.io/${{ env.DOCKER_USERNAME }}/${{ env.IMAGE_NAME }}:${{ inputs.branch-name }}-${SHORT_SHA} .
+      
+      # ==========================================================
 # 2️⃣ SCAN STAGE
 # ==========================================================
   codeql-scan:
@@ -206,9 +209,8 @@ jobs:
 
       - name: Push Docker image
         run: |
-          echo "Pushing Docker image: ${{ env.DOCKER_USERNAME }}/${{ env.IMAGE_NAME }}:${{ env.TAG }}"
-          docker push ${{ env.DOCKER_USERNAME }}/${{ env.IMAGE_NAME }}:${{ env.TAG }}
-
+          echo "Pushing Docker image: docker.io/${{ env.DOCKER_USERNAME }}/${{ env.IMAGE_NAME }}:${{ inputs.branch-name }}-${{ env.SHORT_SHA }}"
+          docker push docker.io/${{ env.DOCKER_USERNAME }}/${{ env.IMAGE_NAME }}:${{ inputs.branch-name }}-${{ env.SHORT_SHA }}
 # ==========================================================
 # 4️⃣ DEPLOY STAGE
 # ==========================================================
