@@ -4,26 +4,31 @@ on:
   workflow_call:
     inputs:
       branch-name:
+        description: "Branch that triggered the workflow"
         required: true
         type: string
       environment:
+        description: "Deployment environment (dev, stage, uat, prod)"
         required: true
         type: string
       docker-image-tag:
+        description: "Docker image tag to build and deploy"
         required: true
         type: string
     secrets:
       DOCKER_PAT:
+        description: "Docker Personal Access Token"
         required: true
 
+# -------------------------------
+# Job 1: Code Scanning
+# -------------------------------
 jobs:
-  codeql-scan:
-    name: CodeQL Analysis
+  scan:
+    name: CodeQL Security Scan
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
     steps:
-      - name: Checkout repository
+      - name: Checkout code
         uses: actions/checkout@v4
       - name: Initialize CodeQL
         uses: github/codeql-action/init@v3
@@ -34,49 +39,81 @@ jobs:
       - name: Perform CodeQL Analysis
         uses: github/codeql-action/analyze@v3
 
-  build-and-deploy:
-    name: Build, Scan, and Deploy
+# -------------------------------
+# Job 2: Build & Push Image
+# -------------------------------
+  build:
+    name: Build and Push Docker Image
     runs-on: ubuntu-latest
-    needs: codeql-scan
+    needs: scan
     env:
       DOCKER_USERNAME: nareshpama
       DOCKER_PASSWORD: ${{ secrets.DOCKER_PAT }}
       REGISTRY: docker.io
       IMAGE_NAME: project-poc
+      TAG: ${{ inputs.docker-image-tag }}
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+
       - name: Log in to Docker Hub
-        uses: docker/login-action@v2
+        uses: docker/login-action@v3
         with:
           username: ${{ env.DOCKER_USERNAME }}
           password: ${{ env.DOCKER_PASSWORD }}
           registry: ${{ env.REGISTRY }}
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
-      - name: Get short commit SHA
-        run: echo "SHORT_SHA=$(echo $GITHUB_SHA | cut -c1-7)" >> $GITHUB_ENV
+
       - name: Build Docker image
         run: |
-          echo "Building Docker image: ${{ env.IMAGE_NAME }}:${{ env.SHORT_SHA }}"
-          docker build -t ${{ env.IMAGE_NAME }}:${{ env.SHORT_SHA }} .
+          echo "Building Docker image: ${{ env.IMAGE_NAME }}:${{ env.TAG }}"
+          docker build -t ${{ env.IMAGE_NAME }}:${{ env.TAG }} .
+
       - name: Scan Docker image with Trivy
         uses: aquasecurity/trivy-action@0.24.0
         with:
-          image-ref: ${{ env.IMAGE_NAME }}:${{ env.SHORT_SHA }}
+          image-ref: ${{ env.IMAGE_NAME }}:${{ env.TAG }}
           format: 'table'
           vuln-type: 'os,library'
           severity: 'CRITICAL,HIGH'
           exit-code: '1'
         continue-on-error: true
+
       - name: Push Docker image
         run: |
-          echo "Pushing Docker image: ${{ env.DOCKER_USERNAME }}/${{ env.IMAGE_NAME }}:${{ env.SHORT_SHA }}"
-          docker tag ${{ env.IMAGE_NAME }}:${{ env.SHORT_SHA }} \
-            ${{ env.DOCKER_USERNAME }}/${{ env.IMAGE_NAME }}:${{ env.SHORT_SHA }}
-          docker push ${{ env.DOCKER_USERNAME }}/${{ env.IMAGE_NAME }}:${{ env.SHORT_SHA}}
-      - name: Deploy to environment
+          echo "Pushing Docker image to DockerHub..."
+          docker tag ${{ env.IMAGE_NAME }}:${{ env.TAG }} \
+            ${{ env.DOCKER_USERNAME }}/${{ env.IMAGE_NAME }}:${{ env.TAG }}
+          docker push ${{ env.DOCKER_USERNAME }}/${{ env.IMAGE_NAME }}:${{ env.TAG }}
+
+# -------------------------------
+# Job 3: Deploy
+# -------------------------------
+  deploy:
+    name: Deploy to Environment
+    runs-on: ubuntu-latest
+    needs: build
+    environment:
+      name: ${{ inputs.environment }}
+    env:
+      IMAGE_NAME: project-poc
+      TAG: ${{ inputs.docker-image-tag }}
+      ENVIRONMENT: ${{ inputs.environment }}
+      BRANCH: ${{ inputs.branch-name }}
+
+    steps:
+      - name: Checkout repo (optional)
+        uses: actions/checkout@v4
+
+      - name: Deploy to target environment
         run: |
-          echo "Deploying ${{ env.IMAGE_NAME }}:${{ env.SHORT_SHA }} to environment ${{ inputs.environment }}"
-          # Replace with your real deploy command(s)
+          echo "---------------------------------------"
+          echo "🚀 Deploying ${{ env.IMAGE_NAME }}:${{ env.TAG }}"
+          echo "🌿 Branch: ${{ env.BRANCH }}"
+          echo "🌎 Environment: ${{ env.ENVIRONMENT }}"
+          echo "---------------------------------------"
+          # Example deploy command:
+          # kubectl apply -f k8s/${{ env.ENVIRONMENT }}/deployment.yaml
