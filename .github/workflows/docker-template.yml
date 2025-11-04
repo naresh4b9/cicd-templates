@@ -21,13 +21,14 @@ jobs:
 # 1️⃣ BUILD STAGE
 # ==========================================================
   build:
-    name: Build Docker Image
+    name: 🏗️ Build Docker Image
     runs-on: ubuntu-latest
     outputs:
       SHORT_SHA: ${{ steps.vars.outputs.short_sha }}
     env:
       DOCKER_USERNAME: nareshpama
       IMAGE_NAME: project-poc
+      GHCR_IMAGE: ghcr.io/${{ github.repository_owner }}/project-poc
 
     steps:
       - uses: actions/checkout@v4
@@ -42,14 +43,22 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Build Docker image
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build & Push Image to GHCR (temporary)
         run: |
           IMAGE_TAG=${{ inputs.branch-name }}-${{ steps.vars.outputs.short_sha }}
-          echo "Building Docker image: docker.io/${{ env.DOCKER_USERNAME }}/${{ env.IMAGE_NAME }}:${IMAGE_TAG}"
-          docker build -t docker.io/${{ env.DOCKER_USERNAME }}/${{ env.IMAGE_NAME }}:${IMAGE_TAG} .
+          echo "Building and pushing temporary image: $GHCR_IMAGE:${IMAGE_TAG}"
+          docker build -t $GHCR_IMAGE:${IMAGE_TAG} .
+          docker push $GHCR_IMAGE:${IMAGE_TAG}
 
 # ==========================================================
-# 2️⃣ SCAN STAGE (same as before)
+# 2️⃣ SCAN STAGE
 # ==========================================================
   codeql-scan:
     name: 🔍 CodeQL Analysis
@@ -57,7 +66,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Detect languages in repo
+      - name: Detect languages
         id: detect_langs
         run: |
           langs=""
@@ -85,7 +94,7 @@ jobs:
 
       - name: Skip message
         if: steps.detect_langs.outputs.langs == ''
-        run: echo "⏭️ No supported source code found for CodeQL scan. Skipping."
+        run: echo "⏭️ No supported code found, skipping CodeQL."
 
   secret-scan:
     name: 🕵️ Secret & Dependency Scan
@@ -96,43 +105,30 @@ jobs:
         if: ${{ github.event_name == 'pull_request' }}
         uses: actions/dependency-review-action@v4
       - name: Run secret scan (always)
-        run: echo "✅ Running secret scan (placeholder)"
+        run: echo "🔐 Running secret scan (placeholder)"
 
   docker-scan:
     name: 🐳 Trivy Docker Image Scan
     runs-on: ubuntu-latest
     needs: build
     steps:
-      - name: Check if Dockerfile exists
-        id: check_dockerfile
-        run: |
-          if find . -type f -name 'Dockerfile' | grep .; then
-            echo "exists=true" >> $GITHUB_OUTPUT
-          else
-            echo "exists=false" >> $GITHUB_OUTPUT
-          fi
       - name: Checkout repo
-        if: steps.check_dockerfile.outputs.exists == 'true'
         uses: actions/checkout@v4
-      - name: Run Trivy Image Scan
-        if: steps.check_dockerfile.outputs.exists == 'true'
+      - name: Run Trivy scan on GHCR image
         uses: aquasecurity/trivy-action@0.24.0
         with:
-          image-ref: project-poc:${{ inputs.docker-image-tag }}
+          image-ref: ghcr.io/${{ github.repository_owner }}/project-poc:${{ inputs.branch-name }}-${{ needs.build.outputs.SHORT_SHA }}
           format: 'table'
           vuln-type: 'os,library'
           severity: 'CRITICAL,HIGH'
           exit-code: '1'
         continue-on-error: false
-      - name: Skip message
-        if: steps.check_dockerfile.outputs.exists == 'false'
-        run: echo "Skipping Docker scan — no Dockerfile found."
 
   dotnet-scan:
     name: 🧩 .NET Code Scan
     runs-on: ubuntu-latest
     steps:
-      - name: Check if .NET project exists
+      - name: Check .NET project
         id: check_dotnet
         run: |
           if ls **/*.csproj 1> /dev/null 2>&1; then
@@ -148,18 +144,15 @@ jobs:
         uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '8.0.x'
-      - name: Restore packages
+      - name: Build & Scan
         if: steps.check_dotnet.outputs.exists == 'true'
-        run: dotnet restore
-      - name: Build project
-        if: steps.check_dotnet.outputs.exists == 'true'
-        run: dotnet build --no-incremental
-      - name: Vulnerability check
-        if: steps.check_dotnet.outputs.exists == 'true'
-        run: dotnet list package --vulnerable
+        run: |
+          dotnet restore
+          dotnet build --no-incremental
+          dotnet list package --vulnerable
       - name: Skip message
         if: steps.check_dotnet.outputs.exists == 'false'
-        run: echo "Skipping .NET scan — no .csproj files found."
+        run: echo "⏭️ Skipping .NET scan — no .csproj found."
 
 # ==========================================================
 # 3️⃣ PUSH STAGE
@@ -180,8 +173,8 @@ jobs:
     env:
       DOCKER_USERNAME: nareshpama
       DOCKER_PASSWORD: ${{ secrets.DOCKER_PAT }}
-      REGISTRY: docker.io
       IMAGE_NAME: project-poc
+      GHCR_IMAGE: ghcr.io/${{ github.repository_owner }}/project-poc
 
     steps:
       - name: Log in to Docker Hub
@@ -189,14 +182,30 @@ jobs:
         with:
           username: ${{ env.DOCKER_USERNAME }}
           password: ${{ env.DOCKER_PASSWORD }}
-          registry: ${{ env.REGISTRY }}
 
-      - name: Pull and Push Docker image
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Pull from GHCR and push to Docker Hub
         run: |
           SHORT_SHA=${{ needs.build.outputs.SHORT_SHA }}
           IMAGE_TAG=${{ inputs.branch-name }}-${SHORT_SHA}
-          echo "Pushing Docker image: docker.io/${{ env.DOCKER_USERNAME }}/${{ env.IMAGE_NAME }}:${IMAGE_TAG}"
+          echo "Pulling GHCR image: $GHCR_IMAGE:${IMAGE_TAG}"
+          docker pull $GHCR_IMAGE:${IMAGE_TAG}
+          docker tag $GHCR_IMAGE:${IMAGE_TAG} docker.io/${{ env.DOCKER_USERNAME }}/${{ env.IMAGE_NAME }}:${IMAGE_TAG}
+          echo "Pushing final image to Docker Hub..."
           docker push docker.io/${{ env.DOCKER_USERNAME }}/${{ env.IMAGE_NAME }}:${IMAGE_TAG}
+
+      - name: Cleanup temporary GHCR image
+        run: |
+          echo "🧹 Cleaning up temporary GHCR image..."
+          curl -X DELETE \
+            -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+            "https://ghcr.io/v2/${{ github.repository_owner }}/project-poc/manifests/${{ inputs.branch-name }}-${{ needs.build.outputs.SHORT_SHA }}" || true
 
 # ==========================================================
 # 4️⃣ DEPLOY STAGE
