@@ -1,0 +1,153 @@
+name: CI/CD Template
+
+on:
+  workflow_call:
+    inputs:
+      branch-name:
+        type: string
+        required: true
+      environment:
+        type: string
+        required: true
+      docker-image-tag:
+        type: string
+        required: true
+    secrets:
+      DOCKER_PAT:
+        required: true
+
+# ==========================================================
+# 1️⃣ BUILD STAGE - build the app
+# ==========================================================
+jobs:
+  build:
+    name: Build Docker Image
+    runs-on: ubuntu-latest
+    env:
+      DOCKER_USERNAME: nareshpama
+      DOCKER_PASSWORD: ${{ secrets.DOCKER_PAT }}
+      REGISTRY: docker.io
+      IMAGE_NAME: project-poc
+      TAG: ${{ inputs.docker-image-tag }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build Docker image (no push)
+        run: |
+          echo "Building Docker image: ${{ env.IMAGE_NAME }}:${{ env.TAG }}"
+          docker build -t ${{ env.IMAGE_NAME }}:${{ env.TAG }} .
+
+# ==========================================================
+# 2️⃣ SCAN STAGE
+# ==========================================================
+  codeql-scan:
+    name: 🔍 CodeQL Analysis
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: github/codeql-action/init@v3
+        with:
+          languages: python, csharp, javascript
+      - uses: github/codeql-action/autobuild@v3
+      - uses: github/codeql-action/analyze@v3
+
+  secret-scan:
+    name: 🕵️ Secret & Dependency Scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Dependency Review
+        uses: actions/dependency-review-action@v4
+      - name: Secret check
+        run: echo "Secret scanning repo contents..."
+
+  docker-scan:
+    name: 🐳 Trivy Docker Image Scan
+    runs-on: ubuntu-latest
+    needs: build
+    if: hashFiles('**/Dockerfile') != ''
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+      - name: Run Trivy Image Scan
+        uses: aquasecurity/trivy-action@0.24.0
+        with:
+          image-ref: project-poc:${{ inputs.docker-image-tag }}
+          format: 'table'
+          vuln-type: 'os,library'
+          severity: 'CRITICAL,HIGH'
+          exit-code: '1'
+        continue-on-error: false 
+
+  dotnet-scan:
+    name: 🧩 .NET Code Scan
+    runs-on: ubuntu-latest
+    if: hashFiles('**/Dockerfile') == '' && hashFiles('**/*.csproj') != ''
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - run: dotnet restore
+      - run: dotnet build --no-incremental
+      - run: dotnet list package --vulnerable
+
+# ==========================================================
+# 3️⃣ PUSH STAGE
+# ==========================================================
+  push:
+    name: Push Docker Image
+    runs-on: ubuntu-latest
+    needs: [build, codeql-scan, secret-scan, docker-scan, dotnet-scan]
+    if: |
+      always() &&
+      needs.build.result == 'success' &&
+      (
+        (needs.codeql-scan.result == 'success' &&
+        (needs.secret-scan.result == 'success' &&
+        (needs.docker-scan.result == 'success' || needs.docker-scan.result == 'skipped') &&
+        (needs.dotnet-scan.result == 'success' || needs.dotnet-scan.result == 'skipped')
+      )
+    env:
+      DOCKER_USERNAME: nareshpama
+      DOCKER_PASSWORD: ${{ secrets.DOCKER_PAT }}
+      REGISTRY: docker.io
+      IMAGE_NAME: project-poc
+      TAG: ${{ inputs.docker-image-tag }}
+    steps:
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ env.DOCKER_USERNAME }}
+          password: ${{ env.DOCKER_PASSWORD }}
+          registry: ${{ env.REGISTRY }}
+      - name: Push Docker image
+        run: |
+          echo "Pushing Docker image: ${{ env.DOCKER_USERNAME }}/${{ env.IMAGE_NAME }}:${{ env.TAG }}"
+          docker tag ${{ env.IMAGE_NAME }}:${{ env.TAG }} \
+            ${{ env.DOCKER_USERNAME }}/${{ env.IMAGE_NAME }}:${{ env.TAG }}
+          docker push ${{ env.DOCKER_USERNAME }}/${{ env.IMAGE_NAME }}:${{ env.TAG }}
+
+# ==========================================================
+# 4️⃣ DEPLOY STAGE - depends on push
+# ==========================================================
+  deploy:
+    name: 🚀 Deploy Application
+    runs-on: ubuntu-latest
+    needs: push
+    environment:
+      name: ${{ inputs.environment }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Deploy to Environment
+        run: |
+          echo "-------------------------------------------"
+          echo "Deploying to: ${{ inputs.environment }}"
+          echo "Branch: ${{ inputs.branch-name }}"
+          echo "Image: nareshpama/project-poc:${{ inputs.docker-image-tag }}"
+          echo "-------------------------------------------"
+          # kubectl apply -f k8s/${{ inputs.environment }}/deployment.yaml
