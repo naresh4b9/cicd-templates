@@ -15,6 +15,8 @@ on:
     secrets:
       DOCKER_PAT:
         required: true
+      GHCR_PAT:
+        required: true
 
 jobs:
 # ==========================================================
@@ -26,7 +28,6 @@ jobs:
     outputs:
       SHORT_SHA: ${{ steps.vars.outputs.short_sha }}
     env:
-      DOCKER_USERNAME: nareshpama
       IMAGE_NAME: project-poc
       GHCR_IMAGE: ghcr.io/${{ github.repository_owner }}/project-poc
 
@@ -43,17 +44,17 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Log in to GHCR
+      - name: Log in to GitHub Container Registry
         uses: docker/login-action@v3
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+          password: ${{ secrets.GHCR_PAT }}
 
       - name: Build & Push Image to GHCR (temporary)
         run: |
           IMAGE_TAG=${{ inputs.branch-name }}-${{ steps.vars.outputs.short_sha }}
-          echo "Building and pushing temporary image: $GHCR_IMAGE:${IMAGE_TAG}"
+          echo "🏗️ Building and pushing temporary image: $GHCR_IMAGE:${IMAGE_TAG}"
           docker build -t $GHCR_IMAGE:${IMAGE_TAG} .
           docker push $GHCR_IMAGE:${IMAGE_TAG}
 
@@ -183,13 +184,6 @@ jobs:
           username: ${{ env.DOCKER_USERNAME }}
           password: ${{ env.DOCKER_PASSWORD }}
 
-      - name: Log in to GHCR
-        uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
       - name: Pull from GHCR and push to Docker Hub
         run: |
           SHORT_SHA=${{ needs.build.outputs.SHORT_SHA }}
@@ -201,11 +195,16 @@ jobs:
           docker push docker.io/${{ env.DOCKER_USERNAME }}/${{ env.IMAGE_NAME }}:${IMAGE_TAG}
 
       - name: Cleanup temporary GHCR image
+        env:
+          GHCR_PAT: ${{ secrets.GHCR_PAT }}
         run: |
           echo "🧹 Cleaning up temporary GHCR image..."
+          IMAGE_TAG=${{ inputs.branch-name }}-${{ needs.build.outputs.SHORT_SHA }}
+          TOKEN=$(echo -n "${GHCR_PAT}" | base64)
+          echo "Deleting manifest for $GHCR_IMAGE:${IMAGE_TAG}"
           curl -X DELETE \
-            -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
-            "https://ghcr.io/v2/${{ github.repository_owner }}/project-poc/manifests/${{ inputs.branch-name }}-${{ needs.build.outputs.SHORT_SHA }}" || true
+            -H "Authorization: Bearer ${GHCR_PAT}" \
+            "https://ghcr.io/v2/${{ github.repository_owner }}/project-poc/manifests/${IMAGE_TAG}" || true
 
 # ==========================================================
 # 4️⃣ DEPLOY STAGE
